@@ -1,11 +1,8 @@
 package workers
 
 import (
-	"errors"
 	"io"
 	"log"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -35,17 +32,13 @@ func Configure(options Options) {
 	ops = options
 }
 
-func work(id string) (bool, error) {
-	i := strings.Index(id, ":")
-	if i == -1 {
-		return false, errors.New("malformed id")
-	}
-	env, _ := strconv.Atoi(id[:i])
-	queue := id[i+1:]
-	if err := dowork(env, queue); err != nil {
+func work(w fair.Work) (bool, error) {
+	d := w.Data.(*sql.Worker)
+	if err := dowork(d.ID, d.Queue); err != nil {
 		return false, err
 	}
-	return false, nil
+	d.Count--
+	return d.Count > 0, nil
 }
 
 var (

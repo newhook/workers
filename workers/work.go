@@ -10,7 +10,19 @@ import (
 	"github.com/newhook/workers/sql"
 )
 
+func limitTo(s string, l int) string {
+	if len(s) > l {
+		return s[:l]
+	}
+	return s
+}
+
 func dowork(env int, queue string) error {
+	// I think the database performance in this function will suck. What will
+	// probably happen is all threads will rush in here try to grab ownership of
+	// the first record causing all of them to deadlock.
+	//
+	// Not sure on the ideal solution here. Stored procedures?
 	job, err := sql.ClaimJob(env, queue)
 	if err != nil {
 		return err
@@ -39,18 +51,14 @@ loop:
 	for {
 		select {
 		case r := <-done:
-			fmt.Println("job done", r)
 			if r == nil {
 				break loop
 			}
-			fmt.Println("retry?")
 			if retry(job) {
-				// XXX: Truncate.
-				job.Error.String = fmt.Sprintf("%v", r)
+				job.Error.String = limitTo(fmt.Sprintf("%v", r), 191)
 				job.Error.Valid = true
-				retryCount := incrementRetry(&job)
 
-				waitDuration := secondsToDelay(retryCount)
+				waitDuration := secondsToDelay(incrementRetry(&job))
 				job.RetryAt.Int64 = time.Now().Unix() + int64(waitDuration)
 				job.RetryAt.Valid = true
 				// Clear the inflight flag.

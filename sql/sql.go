@@ -182,12 +182,16 @@ func Queue(env int, queue string, data []byte) (Job, error) {
 
 func ClaimJob(env int, queue string) (Job, error) {
 	var j Job
-	// XXX: Stored procedure?
+
+	now := time.Now().Unix()
+	inflightLimit := now + 30
+
+	// Stored procedure?
 	if err := db.Transact(func(tr db.Transactor) error {
-		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND inflight IS NULL AND retry_at IS NULL LIMIT 1`, queue); err != nil {
+		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND (inflight IS NULL or inflight < ?) AND retry_at IS NULL LIMIT 1`, queue, now); err != nil {
 			return err
 		}
-		if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, time.Now().Unix(), j.ID); err != nil {
+		if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, inflightLimit, j.ID); err != nil {
 			return err
 		}
 		return nil

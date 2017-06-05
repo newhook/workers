@@ -4,18 +4,22 @@ import (
 	"log"
 	"strconv"
 
+	"github.com/newhook/workers/fair"
 	"github.com/newhook/workers/sql"
 )
 
-func pull() []string {
+func pull() []fair.Work {
 	workers, err := sql.FindReady()
 	if err != nil {
 		log.Println("FindReady", err)
 		return nil
 	}
-	ids := make([]string, len(workers))
+	ids := make([]fair.Work, len(workers))
 	for i, w := range workers {
-		ids[i] = strconv.Itoa(w.ID) + ":" + w.Queue
+		ids[i] = fair.Work{
+			ID:   strconv.Itoa(w.ID) + ":" + w.Queue,
+			Data: &w,
+		}
 	}
 	return ids
 }
