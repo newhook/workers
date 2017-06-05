@@ -1,0 +1,24 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+BaseHTTPRequestHandler	../integration_tests/test.py	/^from http.server import BaseHTTPRequestHandler, HTTPServer$/;"	kind:namespace	line:3
+HTTPServer	../integration_tests/test.py	/^from http.server import BaseHTTPRequestHandler, HTTPServer$/;"	kind:namespace	line:3
+MockServerRequestHandler	../integration_tests/test.py	/^class MockServerRequestHandler(BaseHTTPRequestHandler):$/;"	kind:class	line:60
+Thread	../integration_tests/test.py	/^from threading import Thread$/;"	kind:namespace	line:6
+create_webhook	../integration_tests/test.py	/^def create_webhook(port):$/;"	kind:function	line:16
+do_POST	../integration_tests/test.py	/^    def do_POST(self):$/;"	kind:member	line:61
+get_free_port	../integration_tests/test.py	/^def get_free_port():$/;"	kind:function	line:69
+posts	../integration_tests/test.py	/^posts = []$/;"	kind:variable	line:59
+requests	../integration_tests/test.py	/^import requests$/;"	kind:namespace	line:1
+run_test	../integration_tests/test.py	/^def run_test():$/;"	kind:function	line:82
+setup	../integration_tests/test.py	/^def setup():$/;"	kind:function	line:8
+socket	../integration_tests/test.py	/^import socket$/;"	kind:namespace	line:4
+start_mock_server	../integration_tests/test.py	/^def start_mock_server(port):$/;"	kind:function	line:76
+teardown	../integration_tests/test.py	/^def teardown():$/;"	kind:function	line:10
+test.py	../integration_tests/test.py	1;"	kind:file	line:1
+time	../integration_tests/test.py	/^import time$/;"	kind:namespace	line:5
+url	../integration_tests/test.py	/^url = "http:\/\/localhost:3333"$/;"	kind:variable	line:13
+urljoin	../integration_tests/test.py	/^from requests.compat import urljoin$/;"	kind:namespace	line:2
