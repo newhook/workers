@@ -26,13 +26,12 @@ CREATE DATABASE __DBNAME__ CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE __DBNAME__.jobs (
   id SERIAL,
-  environment_id int NOT NULL,
   queue varchar(30) NOT NULL,
   data VARBINARY(60000) NOT NULL,
   in_flight INT,
   created_at INT NOT NULL,
   updated_at INT NOT NULL,
-  KEY env_queue_index (environment_id, queue)
+  KEY queue_index (queue)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `
 

@@ -11,7 +11,7 @@ import (
 
 type Job struct {
 	ID            int           `db:"id"`
-	EnvironmentID int           `db:"environment_id"`
+	EnvironmentID int           `db:"-"`
 	Queue         string        `db:"queue"`
 	Data          []byte        `db:"data"`
 	InFlight      sql.NullInt64 `db:"in_flight"`
@@ -25,7 +25,29 @@ type Worker struct {
 	Count int    `db:"count"`
 }
 
-func FindReady(queues []string) ([]Worker, error) {
+var (
+	readyQuery string
+	readyArgs  []interface{}
+)
+
+func PrepareQueues(queues []string) error {
+	var err error
+	readyQuery, readyArgs, err = sqlx.In(`SELECT * FROM `+GlobalName+`.workers WHERE queue IN (?) AND count > 0`, queues)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func FindReady() ([]Worker, error) {
+	tr := db.DB()
+	var workers []Worker
+	if err := tr.Select(&workers, tr.Rebind(readyQuery), readyArgs...); err != nil {
+		return nil, err
+	}
+	return workers, nil
+}
+
+func FindReadyRaw(queues []string) ([]Worker, error) {
 	tr := db.DB()
 	// XXX: PREPARE
 	query, args, err := sqlx.In(`SELECT * FROM `+GlobalName+`.workers WHERE queue IN (?) AND count > 0`, queues)
@@ -45,18 +67,17 @@ func FindReady(queues []string) ([]Worker, error) {
 func Queue(env int, queue string, data []byte) (Job, error) {
 	now := time.Now().Unix()
 	j := Job{
-		EnvironmentID: env,
-		Queue:         queue,
-		Data:          data,
-		CreatedAt:     int(now),
-		UpdatedAt:     int(now),
+		Queue:     queue,
+		Data:      data,
+		CreatedAt: int(now),
+		UpdatedAt: int(now),
 	}
 
 	if err := db.Transact(func(tr db.Transactor) error {
 		if result, err := tr.NamedExec(`INSERT INTO `+DatabaseName(env)+`.jobs
-			(environment_id, queue, data, created_at, updated_at)
+			(queue, data, created_at, updated_at)
 		VALUES
-			(:environment_id, :queue, :data, :created_at, :updated_at)`, &j); err != nil {
+			(:queue, :data, :created_at, :updated_at)`, &j); err != nil {
 			return err
 		} else {
 			id, _ := result.LastInsertId()
@@ -81,7 +102,7 @@ func ClaimJob(env int, queue string) (Job, error) {
 	var j Job
 	// XXX: Stored procedure?
 	if err := db.Transact(func(tr db.Transactor) error {
-		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE environment_id = ? AND queue = ? AND in_flight is NULL LIMIT 1`, env, queue); err != nil {
+		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND in_flight is NULL LIMIT 1`, queue); err != nil {
 			return err
 		}
 		if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET in_flight = ? WHERE id = ?`, time.Now().Unix(), j.ID); err != nil {
@@ -91,6 +112,7 @@ func ClaimJob(env int, queue string) (Job, error) {
 	}); err != nil {
 		return Job{}, err
 	}
+	j.EnvironmentID = env
 	return j, nil
 }
 

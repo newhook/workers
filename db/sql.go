@@ -44,8 +44,6 @@ var (
 	transactForDB func(db *sqlx.DB, isDeadlock func(err error) bool, pause time.Duration, maxRetries int, fn func(tx Transactor) error) error = realTransactForDB
 )
 
-// Mocks out the DB and Transact functions so that tests always run within
-// the scope of their own dedicated transaction.
 func Test(t *testing.T, fn func()) {
 	tx, err := db.Beginx()
 	if err != nil {

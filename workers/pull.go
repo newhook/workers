@@ -8,7 +8,7 @@ import (
 )
 
 func pull() []string {
-	workers, err := sql.FindReady(names)
+	workers, err := sql.FindReady()
 	if err != nil {
 		log.Println("FindReady", err)
 		return nil

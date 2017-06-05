@@ -8,6 +8,7 @@ import (
 
 	simplejson "github.com/bitly/go-simplejson"
 	"github.com/newhook/workers/fair"
+	"github.com/newhook/workers/sql"
 )
 
 type Message struct {
@@ -21,8 +22,7 @@ var (
 	ops    = Options{
 		Pool: 2,
 	}
-	pool  *fair.Pool
-	names []string
+	pool *fair.Pool
 )
 
 func Add(queue string, fn Job) {
@@ -58,8 +58,12 @@ func work(id string) (bool, error) {
 }
 
 func Run(writer io.Writer) {
+	var names []string
 	for k := range queues {
 		names = append(names, k)
+	}
+	if err := sql.PrepareQueues(names); err != nil {
+		panic(err)
 	}
 
 	pool = fair.New(work, pull, writer)
