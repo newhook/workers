@@ -19,19 +19,33 @@ CREATE TABLE __DBNAME__.workers (
   count bigint(20) DEFAULT 0,
   PRIMARY KEY(queue, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE __DBNAME__.retries (
+  id INT NOT NULL,
+  queue varchar(30) NOT NULL,
+  retry_at INT,
+  PRIMARY KEY(queue, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `
 
 var EnvStructure = `
 CREATE DATABASE __DBNAME__ CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE __DBNAME__.jobs (
-  id SERIAL,
-  queue varchar(30) NOT NULL,
-  data VARBINARY(60000) NOT NULL,
-  in_flight INT,
-  created_at INT NOT NULL,
-  updated_at INT NOT NULL,
-  KEY queue_index (queue)
+  id          SERIAL,
+  queue       VARCHAR(30) NOT NULL,
+  data        VARBINARY(60000) NOT NULL,
+  inflight    INT,
+  retry       TINYINT(1) NOT NULL,
+  retry_max   INT NOT NULL,
+  retry_at    INT,
+  error       VARCHAR(191),
+  retry_count INT,
+  failed_at   INT,
+  retried_at  INT,
+  created_at  INT NOT NULL,
+  KEY queue_index (queue),
+  KEY queue_retry_inflight_index (queue, inflight, retry_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `
 

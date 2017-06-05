@@ -3,17 +3,15 @@ package workers
 import (
 	"errors"
 	"io"
+	"log"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
-	simplejson "github.com/bitly/go-simplejson"
 	"github.com/newhook/workers/fair"
 	"github.com/newhook/workers/sql"
 )
-
-type Message struct {
-	*simplejson.Json
-}
 
 type Job func(msg *Message)
 
@@ -37,13 +35,6 @@ func Configure(options Options) {
 	ops = options
 }
 
-func Stop() {
-	if pool != nil {
-		pool.Shutdown()
-		pool = nil
-	}
-}
-
 func work(id string) (bool, error) {
 	i := strings.Index(id, ":")
 	if i == -1 {
@@ -57,6 +48,25 @@ func work(id string) (bool, error) {
 	return false, nil
 }
 
+var (
+	wg   sync.WaitGroup
+	done chan (struct{})
+)
+
+func processRetries(done chan struct{}, queues []string) {
+	for {
+		if err := sql.ProcessRetries(queues); err != nil {
+			log.Println(err)
+		}
+
+		select {
+		case <-done:
+			return
+		case <-time.After(1 * time.Second):
+		}
+	}
+}
+
 func Run(writer io.Writer) {
 	var names []string
 	for k := range queues {
@@ -66,6 +76,24 @@ func Run(writer io.Writer) {
 		panic(err)
 	}
 
+	done := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		processRetries(done, names)
+	}()
+
 	pool = fair.New(work, pull, writer)
 	pool.Run()
+}
+
+func Stop() {
+	if pool != nil {
+		pool.Shutdown()
+		pool = nil
+	}
+	if done != nil {
+		close(done)
+		wg.Wait()
+	}
 }

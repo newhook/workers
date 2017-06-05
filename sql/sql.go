@@ -2,6 +2,8 @@ package sql
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/newhook/workers/db"
@@ -10,13 +12,18 @@ import (
 )
 
 type Job struct {
-	ID            int           `db:"id"`
-	EnvironmentID int           `db:"-"`
-	Queue         string        `db:"queue"`
-	Data          []byte        `db:"data"`
-	InFlight      sql.NullInt64 `db:"in_flight"`
-	CreatedAt     int           `db:"created_at"`
-	UpdatedAt     int           `db:"updated_at"`
+	ID         int            `db:"id"`
+	Queue      string         `db:"queue"`
+	Data       []byte         `db:"data"`
+	InFlight   sql.NullInt64  `db:"inflight"`
+	Retry      bool           `db:"retry"`
+	RetryMax   int            `db:"retry_max"`
+	Error      sql.NullString `db:"error"`
+	RetryCount sql.NullInt64  `db:"retry_count"`
+	RetryAt    sql.NullInt64  `db:"retry_at"`
+	FailedAt   sql.NullInt64  `db:"failed_at"`
+	RetriedAt  sql.NullInt64  `db:"retried_at"`
+	CreatedAt  int            `db:"created_at"`
 }
 
 type Worker struct {
@@ -38,6 +45,80 @@ func PrepareQueues(queues []string) error {
 	}
 	return nil
 }
+
+func ProcessRetries(queues []string) error {
+	now := time.Now().Unix()
+	query, args, err := sqlx.In(`SELECT id, queue FROM `+GlobalName+`.retries WHERE queue IN (?) AND retry_at < ?`, queues, now)
+	if err != nil {
+		return err
+	}
+
+	if err := db.Transact(func(tr db.Transactor) error {
+		type retry struct {
+			ID    int    `db:"id"`
+			Queue string `db:"queue"`
+		}
+
+		var retries []retry
+		query = tr.Rebind(query)
+		if err := tr.Select(&retries, query, args...); err != nil {
+			return err
+		}
+
+		var retriesDatas []interface{}
+		var workersDatas []interface{}
+		for _, r := range retries {
+			fmt.Println("clearing retries for", r.ID, "/", r.Queue)
+			if result, err := tr.Exec(`UPDATE `+DatabaseName(r.ID)+`.jobs
+                SET retry_at = NULL
+				WHERE queue = ? AND retry_at < ?`, r.Queue, now); err != nil {
+				return err
+			} else {
+				n, _ := result.RowsAffected()
+
+				workersDatas = append(workersDatas, r.ID)
+				workersDatas = append(workersDatas, r.Queue)
+				workersDatas = append(workersDatas, n)
+			}
+
+			var retry sql.NullInt64
+			retriesDatas = append(retriesDatas, r.ID)
+			retriesDatas = append(retriesDatas, r.Queue)
+
+			if err := tr.Get(&retry, `SELECT retry_at FROM `+DatabaseName(r.ID)+`.jobs
+				WHERE retry_at IS NOT NULL LIMIT 1`); err != nil && err != sql.ErrNoRows {
+				return err
+			}
+
+			retriesDatas = append(retriesDatas, retry)
+		}
+
+		if len(retriesDatas) > 0 {
+			if _, err := tr.Exec(`INSERT INTO `+GlobalName+`.retries
+		    (id, queue, retry_at)
+				VALUES
+			(?,?,?)`+strings.Repeat(",(?,?,?)", (len(retriesDatas)/3)-1)+`
+			ON DUPLICATE KEY UPDATE retry_at=VALUES(retry_at)`, retriesDatas...); err != nil {
+				return err
+			}
+		}
+
+		if len(workersDatas) > 0 {
+			if _, err := tr.Exec(`INSERT INTO `+GlobalName+`.workers
+		    (id, queue, count)
+				VALUES
+			(?,?,?)`+strings.Repeat(",(?,?,?)", (len(workersDatas)/3)-1)+`
+			ON DUPLICATE KEY UPDATE count=count+VALUES(count)`, workersDatas...); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
 func FindReady() ([]Worker, error) {
 	tr := db.DB()
 	var workers []Worker
@@ -69,15 +150,16 @@ func Queue(env int, queue string, data []byte) (Job, error) {
 	j := Job{
 		Queue:     queue,
 		Data:      data,
+		Retry:     true,
+		RetryMax:  30,
 		CreatedAt: int(now),
-		UpdatedAt: int(now),
 	}
 
 	if err := db.Transact(func(tr db.Transactor) error {
 		if result, err := tr.NamedExec(`INSERT INTO `+DatabaseName(env)+`.jobs
-			(queue, data, created_at, updated_at)
+			(queue, data, retry, retry_max, created_at)
 		VALUES
-			(:queue, :data, :created_at, :updated_at)`, &j); err != nil {
+			(:queue, :data, :retry, :retry_max, :created_at)`, &j); err != nil {
 			return err
 		} else {
 			id, _ := result.LastInsertId()
@@ -102,30 +184,47 @@ func ClaimJob(env int, queue string) (Job, error) {
 	var j Job
 	// XXX: Stored procedure?
 	if err := db.Transact(func(tr db.Transactor) error {
-		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND in_flight is NULL LIMIT 1`, queue); err != nil {
+		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND inflight IS NULL AND retry_at IS NULL LIMIT 1`, queue); err != nil {
 			return err
 		}
-		if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET in_flight = ? WHERE id = ?`, time.Now().Unix(), j.ID); err != nil {
+		if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, time.Now().Unix(), j.ID); err != nil {
 			return err
 		}
 		return nil
 	}); err != nil {
 		return Job{}, err
 	}
-	j.EnvironmentID = env
 	return j, nil
 }
 
-func DeleteJob(j Job) error {
+func RetryJob(env int, j Job) error {
 	if err := db.Transact(func(tr db.Transactor) error {
-		if _, err := tr.Exec(`DELETE FROM `+DatabaseName(j.EnvironmentID)+`.jobs WHERE id = ?`, j.ID); err != nil {
+		if _, err := tr.NamedExec(
+			`UPDATE `+DatabaseName(env)+`.jobs SET
+				inflight = :inflight,
+				retry = :retry,
+				retry_max = :retry_max,
+				error = :error,
+				retry_count = :retry_count,
+				retry_at = :retry_at,
+				failed_at = :failed_at,
+				retried_at = :retried_at
+				WHERE id = :id`, j); err != nil {
+			return err
+		}
+		if _, err := tr.Exec(
+			`INSERT INTO `+GlobalName+`.retries
+			   (id, queue, retry_at)
+             VALUES
+			   (?, ?, ?)
+             ON DUPLICATE KEY UPDATE retry_at=IF(retry_at < VALUES(retry_at),retry_at,VALUES(retry_at))`, env, j.Queue, j.RetryAt.Int64); err != nil {
 			return err
 		}
 
 		if _, err := tr.Exec(
 			`UPDATE `+GlobalName+`.workers
 			 SET count = count - 1
-		     WHERE id = ? AND queue = ?`, j.EnvironmentID, j.Queue); err != nil {
+		     WHERE id = ? AND queue = ?`, env, j.Queue); err != nil {
 			return err
 		}
 
@@ -136,9 +235,29 @@ func DeleteJob(j Job) error {
 	return nil
 }
 
-func RefreshJob(j Job) error {
+func DeleteJob(env int, j Job) error {
+	if err := db.Transact(func(tr db.Transactor) error {
+		if _, err := tr.Exec(`DELETE FROM `+DatabaseName(env)+`.jobs WHERE id = ?`, j.ID); err != nil {
+			return err
+		}
+
+		if _, err := tr.Exec(
+			`UPDATE `+GlobalName+`.workers
+			 SET count = count - 1
+		     WHERE id = ? AND queue = ?`, env, j.Queue); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func RefreshJob(env int, j Job) error {
 	tr := db.DB()
-	if _, err := tr.Exec(`UPDATE `+DatabaseName(j.EnvironmentID)+`.jobs SET in_flight = ? WHERE id = ?`, time.Now(), j.ID); err != nil {
+	if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, time.Now(), j.ID); err != nil {
 		return err
 	}
 	return nil

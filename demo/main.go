@@ -58,15 +58,18 @@ func main() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
+		count := 0
 	loop:
 		for {
 			if id, err := workers.Queue(1, "test", map[string]interface{}{
 				"hello": "world",
+				"count": count,
 			}); err != nil {
 				panic(err)
 			} else {
 				fmt.Println("queued job", id)
 			}
+			count++
 			select {
 			case <-signals:
 				break loop
@@ -79,7 +82,17 @@ func main() {
 	workers.Configure(workers.Options{})
 
 	workers.Add("test", func(msg *workers.Message) {
-		fmt.Println(msg)
+		fmt.Println("Start: ", msg.JID)
+		if msg.RetryAttempt() > 0 {
+			fmt.Println("retry", msg.RetryAttempt())
+		}
+		b, _ := msg.EncodePretty()
+		fmt.Println(string(b))
+
+		count := msg.Get("count").MustInt()
+		if count%2 == 0 && msg.RetryAttempt() == 0 {
+			panic("fail this please!")
+		}
 	})
 
 	workers.Run(os.Stdout)
