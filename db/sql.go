@@ -18,6 +18,8 @@ var (
 const (
 	MAXIDLE = 200
 	MAXOPEN = 200
+	// serializable.
+	//url = "root@/?timeout=10s&readTimeout=10s&writeTimeout=10s&multiStatements=true&tx_isolation=SERIALIZABLE"
 	// Repeatable read.
 	url = "root@/?timeout=10s&readTimeout=10s&writeTimeout=10s&multiStatements=true"
 )

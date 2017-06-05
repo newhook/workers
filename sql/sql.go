@@ -32,6 +32,10 @@ type Worker struct {
 	Count int    `db:"count"`
 }
 
+const (
+	InflightLimit = 30
+)
+
 var (
 	readyQuery string
 	readyArgs  []interface{}
@@ -184,11 +188,11 @@ func ClaimJob(env int, queue string) (Job, error) {
 	var j Job
 
 	now := time.Now().Unix()
-	inflightLimit := now + 30
+	inflightLimit := now + InflightLimit
 
 	// Stored procedure?
 	if err := db.Transact(func(tr db.Transactor) error {
-		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND (inflight IS NULL or inflight < ?) AND retry_at IS NULL LIMIT 1`, queue, now); err != nil {
+		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND (inflight IS NULL or inflight < ?) AND retry_at IS NULL LIMIT 1 FOR UPDATE`, queue, now); err != nil {
 			return err
 		}
 		if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, inflightLimit, j.ID); err != nil {
@@ -261,7 +265,7 @@ func DeleteJob(env int, j Job) error {
 
 func RefreshJob(env int, j Job) error {
 	tr := db.DB()
-	if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, time.Now(), j.ID); err != nil {
+	if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, time.Now().Unix()+InflightLimit, j.ID); err != nil {
 		return err
 	}
 	return nil
