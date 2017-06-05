@@ -5,7 +5,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 
 	simplejson "github.com/bitly/go-simplejson"
 	"github.com/newhook/workers/fair"
@@ -22,9 +21,6 @@ var (
 	ops    = Options{
 		Pool: 2,
 	}
-	wg   sync.WaitGroup
-	stop bool
-
 	pool  *fair.Pool
 	names []string
 )
@@ -65,6 +61,7 @@ func Run(writer io.Writer) {
 	for k := range queues {
 		names = append(names, k)
 	}
+
 	pool = fair.New(work, pull, writer)
 	pool.Run()
 }

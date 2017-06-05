@@ -60,13 +60,12 @@ func main() {
 
 	loop:
 		for {
-			if j, err := sql.Queue(1, "test", map[string]interface{}{
+			if id, err := workers.Queue(1, "test", map[string]interface{}{
 				"hello": "world",
 			}); err != nil {
 				panic(err)
 			} else {
-				fmt.Println("queued job", j.ID)
-
+				fmt.Println("queued job", id)
 			}
 			select {
 			case <-signals:

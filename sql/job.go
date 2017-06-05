@@ -2,12 +2,10 @@ package sql
 
 import (
 	"database/sql"
-	"encoding/json"
 	"time"
 
 	"github.com/newhook/workers/db"
 
-	simplejson "github.com/bitly/go-simplejson"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -42,22 +40,6 @@ func FindReady(queues []string) ([]Worker, error) {
 		return nil, err
 	}
 	return workers, nil
-}
-
-func Queue(env int, queue string, msg interface{}) (Job, error) {
-	if b, err := json.Marshal(msg); err != nil {
-		return Job{}, err
-	} else {
-		return QueueRaw(env, queue, b)
-	}
-}
-
-func QueueJson(env int, queue string, msg *simplejson.Json) (Job, error) {
-	if b, err := msg.Encode(); err != nil {
-		return Job{}, err
-	} else {
-		return QueueRaw(env, queue, b)
-	}
 }
 
 func QueueRaw(env int, queue string, data []byte) (Job, error) {
