@@ -27,17 +27,17 @@ func main() {
 	}
 
 	if *reset {
-		if err := sql.SqlReset(db.DB()); err != nil {
+		if err := sql.Reset(db.DB()); err != nil {
 			panic(err)
 		}
 
-		if err := sql.SqlMaybeSetupGlobal(db.DB()); err != nil {
+		if err := sql.MaybeSetupGlobal(db.DB()); err != nil {
 			panic(err)
 		}
 	}
 
 	if *queue {
-		if ids, err := sql.SqlIds(db.DB()); err != nil {
+		if ids, err := sql.EnvironmentIDs(db.DB()); err != nil {
 			panic(err)
 		} else {
 			found := false
@@ -49,7 +49,7 @@ func main() {
 			}
 			if !found {
 				fmt.Println("initializing database for env", *env)
-				if err := sql.SqlSetupEnv(db.DB(), *env); err != nil {
+				if err := sql.SetupEnv(db.DB(), *env); err != nil {
 					panic(err)
 				}
 			}

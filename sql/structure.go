@@ -45,7 +45,7 @@ func DatabaseName(id int) string {
 	return LocalName + strconv.Itoa(id)
 }
 
-func SqlSetupGlobal(tr db.Transactor) error {
+func SetupGlobal(tr db.Transactor) error {
 	structure := strings.Replace(GlobalStructure, "__DBNAME__", GlobalName, -1)
 	if _, err := tr.Exec(structure); err != nil {
 		return err
@@ -53,7 +53,7 @@ func SqlSetupGlobal(tr db.Transactor) error {
 	return nil
 }
 
-func SqlIds(tr db.Transactor) ([]int, error) {
+func EnvironmentIDs(tr db.Transactor) ([]int, error) {
 	rows, err := tr.Query("show databases;")
 	if err != nil {
 		return nil, err
@@ -86,8 +86,8 @@ func SqlIds(tr db.Transactor) ([]int, error) {
 	return ids, nil
 }
 
-func SqlReset(tr db.Transactor) error {
-	ids, err := SqlIds(tr)
+func Reset(tr db.Transactor) error {
+	ids, err := EnvironmentIDs(tr)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func SqlReset(tr db.Transactor) error {
 	return nil
 }
 
-func SqlMaybeSetupGlobal(tr db.Transactor) error {
+func MaybeSetupGlobal(tr db.Transactor) error {
 	var name string
 
 	err := tr.QueryRow(`
@@ -114,7 +114,7 @@ func SqlMaybeSetupGlobal(tr db.Transactor) error {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return SqlSetupGlobal(tr)
+			return SetupGlobal(tr)
 		}
 
 		return err
@@ -122,10 +122,10 @@ func SqlMaybeSetupGlobal(tr db.Transactor) error {
 	return nil
 }
 
-func SqlSetupEnv(tr db.Transactor, id int) error {
+func SetupEnv(tr db.Transactor, id int) error {
 	dbname := DatabaseName(id)
 
-	if err := SqlMaybeSetupGlobal(tr); err != nil {
+	if err := MaybeSetupGlobal(tr); err != nil {
 		return err
 	}
 

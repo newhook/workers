@@ -42,7 +42,7 @@ func FindReady(queues []string) ([]Worker, error) {
 	return workers, nil
 }
 
-func QueueRaw(env int, queue string, data []byte) (Job, error) {
+func Queue(env int, queue string, data []byte) (Job, error) {
 	now := time.Now().Unix()
 	j := Job{
 		EnvironmentID: env,
