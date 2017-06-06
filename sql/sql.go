@@ -35,10 +35,10 @@ type Worker struct {
 	Inflight int    `db:"inflight"`
 }
 
-const (
+var (
 	// How long a message is considered in-flight before being picked
 	// up for work by a different worker.
-	InflightLimit = 30
+	InflightLimit = int64(60)
 )
 
 func ProcessRetries() error {

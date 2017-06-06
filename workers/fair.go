@@ -100,7 +100,7 @@ func refreshJob(message *Message) chan interface{} {
 				}
 				return
 
-			case <-time.After(1 * time.Second):
+			case <-time.After(time.Duration(sql.InflightLimit/2) * time.Second):
 				// If the refresh failed we had a database error, or the job was stolen
 				// by some other worker.
 				if ok, err := sql.RefreshJob(message.Env, *message.raw); err != nil {
