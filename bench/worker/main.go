@@ -35,7 +35,9 @@ func main() {
 		}
 	}
 
-	workers.Configure(workers.Options{})
+	workers.Configure(workers.Options{
+		Concurrency: 100,
+	})
 
 	start := time.Now()
 	count := 0

@@ -1,6 +1,8 @@
 package workers
 
 import (
+	"context"
+
 	simplejson "github.com/bitly/go-simplejson"
 	"github.com/newhook/workers/sql"
 )
@@ -9,8 +11,10 @@ type Message struct {
 	JID   string
 	Env   int
 	Queue string
+	Ctx   context.Context
 	*simplejson.Json
-	raw *sql.Job
+	raw    *sql.Job
+	cancel context.CancelFunc
 }
 
 func (m *Message) Retry(count int) {

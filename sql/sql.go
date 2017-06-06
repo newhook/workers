@@ -7,65 +7,50 @@ import (
 	"time"
 
 	"github.com/newhook/workers/db"
+	"github.com/pborman/uuid"
 
 	"github.com/jmoiron/sqlx"
 )
 
 type Job struct {
-	ID         int            `db:"id"`
-	Queue      string         `db:"queue"`
-	Data       []byte         `db:"data"`
-	InFlight   sql.NullInt64  `db:"inflight"`
-	Retry      bool           `db:"retry"`
-	RetryMax   int            `db:"retry_max"`
-	Error      sql.NullString `db:"error"`
-	RetryCount sql.NullInt64  `db:"retry_count"`
-	RetryAt    sql.NullInt64  `db:"retry_at"`
-	FailedAt   sql.NullInt64  `db:"failed_at"`
-	RetriedAt  sql.NullInt64  `db:"retried_at"`
-	CreatedAt  int            `db:"created_at"`
+	ID          int            `db:"id"`
+	Queue       string         `db:"queue"`
+	Data        []byte         `db:"data"`
+	InFlight    sql.NullInt64  `db:"inflight"`
+	InFlightTok sql.NullString `db:"inflight_tok"`
+	Retry       bool           `db:"retry"`
+	RetryMax    int            `db:"retry_max"`
+	Error       sql.NullString `db:"error"`
+	RetryCount  sql.NullInt64  `db:"retry_count"`
+	RetryAt     sql.NullInt64  `db:"retry_at"`
+	FailedAt    sql.NullInt64  `db:"failed_at"`
+	RetriedAt   sql.NullInt64  `db:"retried_at"`
+	CreatedAt   int            `db:"created_at"`
 }
 
 type Worker struct {
-	ID    int    `db:"id"`
-	Queue string `db:"queue"`
-	Count int    `db:"count"`
+	ID       int    `db:"id"`
+	Queue    string `db:"queue"`
+	Count    int    `db:"count"`
+	Inflight int    `db:"inflight"`
 }
 
 const (
+	// How long a message is considered in-flight before being picked
+	// up for work by a different worker.
 	InflightLimit = 30
 )
 
-var (
-	readyQuery string
-	readyArgs  []interface{}
-)
-
-func PrepareQueues(queues []string) error {
-	var err error
-	readyQuery, readyArgs, err = sqlx.In(`SELECT * FROM `+GlobalName+`.workers WHERE queue IN (?) AND count > 0`, queues)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func ProcessRetries(queues []string) error {
-	now := time.Now().Unix()
-	query, args, err := sqlx.In(`SELECT id, queue FROM `+GlobalName+`.retries WHERE queue IN (?) AND retry_at < ?`, queues, now)
-	if err != nil {
-		return err
-	}
-
+func ProcessRetries() error {
 	if err := db.Transact(func(tr db.Transactor) error {
 		type retry struct {
 			ID    int    `db:"id"`
 			Queue string `db:"queue"`
 		}
 
+		now := time.Now().Unix()
 		var retries []retry
-		query = tr.Rebind(query)
-		if err := tr.Select(&retries, query, args...); err != nil {
+		if err := tr.Select(&retries, `SELECT id, queue FROM `+GlobalName+`.retries WHERE retry_at < ?`, now); err != nil {
 			return err
 		}
 
@@ -123,6 +108,71 @@ func ProcessRetries(queues []string) error {
 	return nil
 }
 
+func ProcessInflight() error {
+	if err := db.Transact(func(tr db.Transactor) error {
+		var workers []Worker
+		if err := tr.Select(&workers, `SELECT * FROM `+GlobalName+`.workers WHERE inflight > 0`); err != nil {
+			return err
+		}
+
+		var datas []interface{}
+		for _, w := range workers {
+			now := time.Now().Unix()
+			var j []Job
+			if err := tr.Select(&j, `SELECT * FROM `+DatabaseName(w.ID)+`.jobs
+                WHERE queue = ? AND inflight < ?`, w.Queue, now); err != nil {
+				return err
+			}
+			if len(j) > 0 {
+				fmt.Println(j)
+			}
+			//fmt.Println("clearing inflight for", w.ID, "/", w.Queue)
+			if result, err := tr.Exec(`UPDATE `+DatabaseName(w.ID)+`.jobs
+			    SET inflight = NULL, inflight_tok = NULL
+                WHERE queue = ? AND inflight < ?`, w.Queue, now); err != nil {
+				return err
+			} else {
+				n, _ := result.RowsAffected()
+				if n > 0 {
+					fmt.Println(w.ID, "/", w.Queue, " cleared", n, "inflight records")
+					datas = append(datas, w.ID)
+					datas = append(datas, w.Queue)
+					datas = append(datas, n)
+					datas = append(datas, n)
+				}
+			}
+		}
+
+		if len(datas) > 0 {
+			if _, err := tr.Exec(`INSERT INTO `+GlobalName+`.workers
+		    (id, queue, count, inflight)
+				VALUES
+			(?,?,?,?)`+strings.Repeat(",(?,?,?,?)", (len(datas)/4)-1)+`
+			ON DUPLICATE KEY UPDATE count=count+VALUES(count),inflight=inflight-VALUES(inflight)`, datas...); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+var (
+	readyQuery string
+	readyArgs  []interface{}
+)
+
+func PrepareQueues(queues []string) error {
+	var err error
+	readyQuery, readyArgs, err = sqlx.In(`SELECT * FROM `+GlobalName+`.workers WHERE queue IN (?) AND count > 0`, queues)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func FindReady() ([]Worker, error) {
 	tr := db.DB()
 	var workers []Worker
@@ -134,7 +184,6 @@ func FindReady() ([]Worker, error) {
 
 func FindReadyRaw(queues []string) ([]Worker, error) {
 	tr := db.DB()
-	// XXX: PREPARE
 	query, args, err := sqlx.In(`SELECT * FROM `+GlobalName+`.workers WHERE queue IN (?) AND count > 0`, queues)
 	if err != nil {
 		return nil, err
@@ -149,6 +198,7 @@ func FindReadyRaw(queues []string) ([]Worker, error) {
 	return workers, nil
 }
 
+// TODO: Add support for batch queuing of messages.
 func Queue(env int, queue string, data []byte) (Job, error) {
 	now := time.Now().Unix()
 	j := Job{
@@ -174,7 +224,7 @@ func Queue(env int, queue string, data []byte) (Job, error) {
 			   (id, queue, count)
              VALUES
 			   (?, ?, 1)
-             ON DUPLICATE KEY UPDATE count=count + 1`, env, queue); err != nil {
+             ON DUPLICATE KEY UPDATE count=count+VALUES(count)`, env, queue); err != nil {
 			return err
 		}
 		return nil
@@ -184,42 +234,71 @@ func Queue(env int, queue string, data []byte) (Job, error) {
 	return j, nil
 }
 
-func ClaimJob(env int, queue string) (Job, error) {
-	var j Job
-
-	now := time.Now().Unix()
-	inflightLimit := now + InflightLimit
+func ClaimJob(env int, queue string) (Job, bool, error) {
+	var (
+		j   Job
+		ok  bool
+		now = time.Now().Unix()
+	)
 
 	// Stored procedure?
 	if err := db.Transact(func(tr db.Transactor) error {
-		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND (inflight IS NULL or inflight < ?) AND retry_at IS NULL LIMIT 1 FOR UPDATE`, queue, now); err != nil {
+		if err := tr.Get(&j, `SELECT * FROM `+DatabaseName(env)+`.jobs WHERE queue = ? AND inflight IS NULL AND retry_at IS NULL LIMIT 1 FOR UPDATE`, queue); err != nil {
+			if err == sql.ErrNoRows {
+				ok = false
+				return nil
+			}
 			return err
 		}
-		if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, inflightLimit, j.ID); err != nil {
+		ok = true
+
+		j.InFlightTok = sql.NullString{String: uuid.New(), Valid: true}
+		j.InFlight = sql.NullInt64{Int64: int64(now + InflightLimit), Valid: true}
+		if _, err := tr.NamedExec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = :inflight, inflight_tok = :inflight_tok WHERE id = :id`, j); err != nil {
+			return err
+		}
+
+		if _, err := tr.Exec(
+			`INSERT INTO `+GlobalName+`.workers
+			   (id, queue, count, inflight)
+             VALUES
+			   (?, ?, 1, 1)
+             ON DUPLICATE KEY UPDATE count=count-VALUES(count),inflight=inflight+VALUES(inflight)`, env, queue); err != nil {
 			return err
 		}
 		return nil
 	}); err != nil {
-		return Job{}, err
+		return Job{}, false, err
 	}
-	return j, nil
+	return j, ok, nil
 }
 
-func RetryJob(env int, j Job) error {
+func RetryJob(env int, j Job) (bool, error) {
+	var ok bool
 	if err := db.Transact(func(tr db.Transactor) error {
-		if _, err := tr.NamedExec(
+
+		// XXX: What happens if this fails because the tok has expired?
+		if result, err := tr.NamedExec(
 			`UPDATE `+DatabaseName(env)+`.jobs SET
-				inflight = :inflight,
-				retry = :retry,
-				retry_max = :retry_max,
-				error = :error,
-				retry_count = :retry_count,
-				retry_at = :retry_at,
-				failed_at = :failed_at,
-				retried_at = :retried_at
-				WHERE id = :id`, j); err != nil {
+					inflight = NULL,
+					inflight_tok = NULL,
+					retry = :retry,
+					retry_max = :retry_max,
+					error = :error,
+					retry_count = :retry_count,
+					retry_at = :retry_at,
+					failed_at = :failed_at,
+					retried_at = :retried_at
+				WHERE id = :id AND inflight_tok = :inflight_tok`, j); err != nil {
 			return err
+		} else {
+			n, _ := result.RowsAffected()
+			if n == 0 {
+				return nil
+			}
 		}
+		ok = true
+
 		if _, err := tr.Exec(
 			`INSERT INTO `+GlobalName+`.retries
 			   (id, queue, retry_at)
@@ -231,42 +310,54 @@ func RetryJob(env int, j Job) error {
 
 		if _, err := tr.Exec(
 			`UPDATE `+GlobalName+`.workers
-			 SET count = count - 1
+			 SET inflight = inflight -1
 		     WHERE id = ? AND queue = ?`, env, j.Queue); err != nil {
 			return err
 		}
 
 		return nil
 	}); err != nil {
-		return err
+		return ok, err
 	}
-	return nil
+	return ok, nil
 }
 
-func DeleteJob(env int, j Job) error {
+func DeleteJob(env int, j Job) (bool, error) {
+	var ok bool
 	if err := db.Transact(func(tr db.Transactor) error {
-		if _, err := tr.Exec(`DELETE FROM `+DatabaseName(env)+`.jobs WHERE id = ?`, j.ID); err != nil {
+		if result, err := tr.NamedExec(`DELETE FROM `+DatabaseName(env)+`.jobs WHERE id = :id AND inflight_tok = :inflight_tok`, j); err != nil {
 			return err
+		} else {
+			n, _ := result.RowsAffected()
+			if n == 0 {
+				return nil
+			}
 		}
+		ok = true
 
 		if _, err := tr.Exec(
 			`UPDATE `+GlobalName+`.workers
-			 SET count = count - 1
+			 SET inflight = inflight - 1
 		     WHERE id = ? AND queue = ?`, env, j.Queue); err != nil {
 			return err
 		}
 
 		return nil
 	}); err != nil {
-		return err
+		return ok, err
 	}
-	return nil
+	return ok, nil
 }
 
-func RefreshJob(env int, j Job) error {
+func RefreshJob(env int, j Job) (bool, error) {
 	tr := db.DB()
-	if _, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs SET inflight = ? WHERE id = ?`, time.Now().Unix()+InflightLimit, j.ID); err != nil {
-		return err
+	j.InFlight.Int64 = time.Now().Unix() + InflightLimit
+	if result, err := tr.NamedExec(`UPDATE `+DatabaseName(env)+`.jobs
+			SET inflight = :inflight
+			WHERE id = :id AND inflight_tok = :inflight_tok`, j); err != nil {
+		return false, err
+	} else {
+		n, _ := result.RowsAffected()
+		return n == 1, nil
 	}
-	return nil
 }

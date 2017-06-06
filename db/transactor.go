@@ -116,8 +116,19 @@ func newDBWrapper(db *sqlx.DB) *dbWrapper {
 }
 
 func (db *dbWrapper) trace(err error, s string, args ...interface{}) {
+	/*
+		if err != nil {
+			fmt.Printf(s, args...)
+			fmt.Println()
+			if err != nil {
+				fmt.Println(err)
+				debug.PrintStack()
+			}
+		}
+	*/
 	if TraceSQL {
 		fmt.Printf(s, args...)
+		fmt.Println()
 		if err != nil {
 			fmt.Println(err)
 			debug.PrintStack()
@@ -257,8 +268,20 @@ func newTxWrapper(tx *sqlx.Tx) *txWrapper {
 }
 
 func (t *txWrapper) trace(err error, s string, args ...interface{}) {
+	/*
+		if err != nil {
+			fmt.Printf(s, args...)
+			fmt.Println()
+			if err != nil {
+				fmt.Println(err)
+				debug.PrintStack()
+			}
+		}
+	*/
+
 	if TraceSQL {
 		fmt.Printf(s, args...)
+		fmt.Println()
 		if err != nil {
 			fmt.Println(err)
 			debug.PrintStack()
