@@ -209,6 +209,15 @@ func FindReadyQueue(queue string) ([]Worker, error) {
 	return workers, nil
 }
 
+func FindWorkers() ([]Worker, error) {
+	tr := db.DB()
+	var workers []Worker
+	if err := tr.Select(&workers, `SELECT * FROM `+GlobalName+`.workers`); err != nil {
+		return nil, err
+	}
+	return workers, nil
+}
+
 // TODO: Add support for batch queuing of messages.
 func Queue(env int, queue string, data []byte) (Job, error) {
 	now := time.Now().Unix()
@@ -360,12 +369,52 @@ func DeleteJob(env int, j Job) (bool, error) {
 	return ok, nil
 }
 
+func DeleteJobID(env int, id int, token string, queue string) (bool, error) {
+	var ok bool
+	if err := db.Transact(func(tr db.Transactor) error {
+		if result, err := tr.Exec(`DELETE FROM `+DatabaseName(env)+`.jobs WHERE id = ? AND inflight_tok = ?`, id, token); err != nil {
+			return err
+		} else {
+			n, _ := result.RowsAffected()
+			if n == 0 {
+				return nil
+			}
+		}
+		ok = true
+
+		if _, err := tr.Exec(
+			`UPDATE `+GlobalName+`.workers
+			 SET inflight = inflight - 1
+		     WHERE id = ? AND queue = ?`, env, queue); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return ok, err
+	}
+	return ok, nil
+}
+
 func RefreshJob(env int, j Job) (bool, error) {
 	tr := db.DB()
 	j.InFlight.Int64 = time.Now().Unix() + InflightLimit
 	if result, err := tr.NamedExec(`UPDATE `+DatabaseName(env)+`.jobs
 			SET inflight = :inflight
 			WHERE id = :id AND inflight_tok = :inflight_tok`, j); err != nil {
+		return false, err
+	} else {
+		n, _ := result.RowsAffected()
+		return n == 1, nil
+	}
+}
+
+func RefreshJobID(env int, id int, tok string) (bool, error) {
+	tr := db.DB()
+	inflight := time.Now().Unix() + InflightLimit
+	if result, err := tr.Exec(`UPDATE `+DatabaseName(env)+`.jobs
+			SET inflight = ?
+			WHERE id = ? AND inflight_tok = ?`, inflight, id, tok); err != nil {
 		return false, err
 	} else {
 		n, _ := result.RowsAffected()
