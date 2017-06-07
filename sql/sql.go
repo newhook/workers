@@ -177,6 +177,9 @@ func FindReady() ([]Worker, error) {
 	tr := db.DB()
 	var workers []Worker
 	if err := tr.Select(&workers, tr.Rebind(readyQuery), readyArgs...); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return workers, nil
@@ -193,6 +196,14 @@ func FindReadyRaw(queues []string) ([]Worker, error) {
 
 	query = tr.Rebind(query)
 	if err := tr.Select(&workers, query, args...); err != nil {
+		return nil, err
+	}
+	return workers, nil
+}
+func FindReadyQueue(queue string) ([]Worker, error) {
+	tr := db.DB()
+	var workers []Worker
+	if err := tr.Select(&workers, `SELECT * FROM `+GlobalName+`.workers WHERE queue = ? AND count > 0`, queue); err != nil {
 		return nil, err
 	}
 	return workers, nil

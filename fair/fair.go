@@ -115,6 +115,10 @@ func (w *Pool) Run() {
 	}
 }
 
+func (w *Pool) Step() {
+	w.wake(w.pull())
+}
+
 func (w *Pool) Shutdown() {
 	if w.stop != nil {
 		close(w.stop)
