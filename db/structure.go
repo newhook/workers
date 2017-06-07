@@ -1,4 +1,4 @@
-package sql
+package db
 
 import (
 	"database/sql"
@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/newhook/workers/db"
 )
 
 var GlobalStructure = `
@@ -27,6 +25,15 @@ CREATE TABLE __DBNAME__.retries (
   retry_at INT,
   PRIMARY KEY(queue, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS __DBNAME__.egress (
+    id int(11) NOT NULL,
+    queue int NOT NULL,
+    inserted bigint(20) DEFAULT 0,
+    processed bigint(20) DEFAULT 0,
+    PRIMARY KEY(queue, id),
+	KEY(inserted, processed)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `
 
 var EnvStructure = `
@@ -49,6 +56,13 @@ CREATE TABLE __DBNAME__.jobs (
   KEY queue_index (queue),
   KEY queue_retry_inflight_index (queue, inflight, retry_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE __DBNAME__.egress (
+  id serial,
+  queue int NOT NULL,
+  data varbinary(60000) DEFAULT NULL,
+  KEY index_queue (queue, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `
 
 var (
@@ -60,7 +74,7 @@ func DatabaseName(id int) string {
 	return LocalName + strconv.Itoa(id)
 }
 
-func SetupGlobal(tr db.Transactor) error {
+func SetupGlobal(tr Transactor) error {
 	structure := strings.Replace(GlobalStructure, "__DBNAME__", GlobalName, -1)
 	if _, err := tr.Exec(structure); err != nil {
 		return err
@@ -68,7 +82,7 @@ func SetupGlobal(tr db.Transactor) error {
 	return nil
 }
 
-func EnvironmentIDs(tr db.Transactor) ([]int, error) {
+func EnvironmentIDs(tr Transactor) ([]int, error) {
 	rows, err := tr.Query("show databases;")
 	if err != nil {
 		return nil, err
@@ -101,7 +115,7 @@ func EnvironmentIDs(tr db.Transactor) ([]int, error) {
 	return ids, nil
 }
 
-func Reset(tr db.Transactor) error {
+func Reset(tr Transactor) error {
 	ids, err := EnvironmentIDs(tr)
 	if err != nil {
 		return err
@@ -120,7 +134,7 @@ func Reset(tr db.Transactor) error {
 	return nil
 }
 
-func MaybeSetupGlobal(tr db.Transactor) error {
+func MaybeSetupGlobal(tr Transactor) error {
 	var name string
 
 	err := tr.QueryRow(`
@@ -137,7 +151,7 @@ func MaybeSetupGlobal(tr db.Transactor) error {
 	return nil
 }
 
-func SetupEnv(tr db.Transactor, id int) error {
+func SetupEnv(tr Transactor, id int) error {
 	dbname := DatabaseName(id)
 
 	if err := MaybeSetupGlobal(tr); err != nil {

@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/newhook/workers/sql"
+	"github.com/newhook/workers/db"
 )
 
 const (
@@ -17,7 +17,7 @@ func durationToSecondsWithNanoPrecision(d time.Duration) float64 {
 	return float64(d.Nanoseconds()) / NanoSecondPrecision
 }
 
-func retry(message *sql.Job) bool {
+func retry(message *db.Job) bool {
 	max := DEFAULT_MAX_RETRY
 	retry := message.Retry
 	count := int(message.RetryCount.Int64)
@@ -27,7 +27,7 @@ func retry(message *sql.Job) bool {
 	return retry && count < max
 }
 
-func incrementRetry(message *sql.Job) int {
+func incrementRetry(message *db.Job) int {
 	if !message.RetryCount.Valid {
 		message.FailedAt.Int64 = time.Now().Unix()
 		message.FailedAt.Valid = true

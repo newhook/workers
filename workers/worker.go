@@ -3,8 +3,8 @@ package workers
 import (
 	"io"
 
+	"github.com/newhook/workers/db"
 	"github.com/newhook/workers/fair"
-	"github.com/newhook/workers/sql"
 )
 
 type Job func(msg *Message)
@@ -34,7 +34,7 @@ func Run(writer io.Writer) {
 	for k := range queues {
 		names = append(names, k)
 	}
-	if err := sql.PrepareQueues(names); err != nil {
+	if err := db.PrepareQueues(names); err != nil {
 		panic(err)
 	}
 

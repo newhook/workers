@@ -7,12 +7,12 @@ import (
 	"time"
 
 	workers "github.com/jrallison/go-workers"
-	"github.com/newhook/workers/httpworkers"
+	"github.com/newhook/workers/httpworkers_egress"
 )
 
 func main() {
 	numWorkers := 2
-	queueName := "test"
+	queueName := "webhook"
 	writer := os.Stdout
 	workers.Logger = log.New(writer, "workers: ", log.LstdFlags)
 	workers.Configure(map[string]string{
@@ -23,7 +23,7 @@ func main() {
 	})
 	workers.Config.Fetch = func(queue string) workers.Fetcher {
 		//return fetcher.New(queueName, 1, 60)
-		return httpworkers.New(queueName, 1, 60)
+		return httpworkers_egress.New(queueName, 1, 60)
 	}
 
 	workers.Process(queueName, func(msgs workers.Msgs) {

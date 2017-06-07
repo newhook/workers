@@ -11,8 +11,8 @@ import (
 
 	simplejson "github.com/bitly/go-simplejson"
 	workers "github.com/jrallison/go-workers"
+	"github.com/newhook/workers/db"
 	"github.com/newhook/workers/fair"
-	"github.com/newhook/workers/sql"
 )
 
 type Fetcher struct {
@@ -39,16 +39,16 @@ func (f *Fetcher) Queue() string {
 
 type msg struct {
 	env int
-	job sql.Job
+	job db.Job
 }
 
 func work(messages chan msg) func(w fair.Work) (bool, error) {
 	return func(w fair.Work) (bool, error) {
-		d := w.Data.(*sql.Worker)
+		d := w.Data.(*db.Worker)
 		env := d.ID
 		queue := d.Queue
 
-		job, ok, err := sql.ClaimJob(env, queue)
+		job, ok, err := db.ClaimJob(env, queue)
 		if err != nil {
 			return false, err
 		}
@@ -63,7 +63,7 @@ func work(messages chan msg) func(w fair.Work) (bool, error) {
 
 func pull(queue string) func() []fair.Work {
 	return func() []fair.Work {
-		workers, err := sql.FindReadyQueue(queue)
+		workers, err := db.FindReadyQueue(queue)
 		if err != nil {
 			log.Println("FindReady", err)
 			return nil
@@ -147,7 +147,7 @@ func (f *Fetcher) Acknowledge(messages workers.Msgs) {
 
 	for i, msg := range messages {
 		if oks[i] {
-			if _, err := sql.DeleteJob(flights[i].env, flights[i].job); err != nil {
+			if _, err := db.DeleteJob(flights[i].env, flights[i].job); err != nil {
 				log.Println(err)
 			}
 			f.flightLock.Lock()
@@ -194,7 +194,7 @@ func (f *Fetcher) ping() {
 
 		f.flightLock.Lock()
 		for _, msg := range f.inflight {
-			if _, err := sql.RefreshJob(msg.env, msg.job); err != nil {
+			if _, err := db.RefreshJob(msg.env, msg.job); err != nil {
 				log.Println(err)
 			}
 		}

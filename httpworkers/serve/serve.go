@@ -16,8 +16,8 @@ import (
 	"encoding/json"
 
 	"github.com/julienschmidt/httprouter"
+	"github.com/newhook/workers/db"
 	"github.com/newhook/workers/httpworkers/data"
-	"github.com/newhook/workers/sql"
 )
 
 type env struct {
@@ -35,7 +35,7 @@ var (
 )
 
 func Refresh() {
-	workers, err := sql.FindWorkers()
+	workers, err := db.FindWorkers()
 	if err != nil {
 		return
 	}
@@ -105,7 +105,7 @@ func Fetch(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		return
 	}
 
-	job, ok, err := sql.ClaimJob(envID, queue)
+	job, ok, err := db.ClaimJob(envID, queue)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, fmt.Sprintf("%v", err))
@@ -176,7 +176,7 @@ func Ack(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		return
 	}
 
-	if ok, err := sql.DeleteJobID(req.Env, req.ID, req.Token, req.Queue); err != nil {
+	if ok, err := db.DeleteJobID(req.Env, req.ID, req.Token, req.Queue); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, fmt.Sprintf("%v", err))
 		return
@@ -197,7 +197,7 @@ func Ping(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		return
 	}
 
-	if ok, err := sql.RefreshJobID(req.Env, req.ID, req.Token); err != nil {
+	if ok, err := db.RefreshJobID(req.Env, req.ID, req.Token); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, fmt.Sprintf("%v", err))
 		return

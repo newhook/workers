@@ -4,7 +4,7 @@ import (
 	"context"
 
 	simplejson "github.com/bitly/go-simplejson"
-	"github.com/newhook/workers/sql"
+	"github.com/newhook/workers/db"
 )
 
 type Message struct {
@@ -13,7 +13,7 @@ type Message struct {
 	Queue string
 	Ctx   context.Context
 	*simplejson.Json
-	raw    *sql.Job
+	raw    *db.Job
 	cancel context.CancelFunc
 }
 

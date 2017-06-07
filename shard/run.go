@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/newhook/workers/sql"
+	"github.com/newhook/workers/db"
 )
 
 var (
@@ -20,7 +20,7 @@ func Run(writer io.Writer) {
 	go func() {
 		defer wg.Done()
 		for {
-			if err := sql.ProcessRetries(); err != nil {
+			if err := db.ProcessRetries(); err != nil {
 				log.Println(err)
 			}
 
@@ -36,7 +36,7 @@ func Run(writer io.Writer) {
 	go func() {
 		defer wg.Done()
 		for {
-			if err := sql.ProcessInflight(); err != nil {
+			if err := db.ProcessInflight(); err != nil {
 				log.Println(err)
 			}
 

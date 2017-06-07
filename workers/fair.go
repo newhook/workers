@@ -8,8 +8,8 @@ import (
 	"time"
 
 	simplejson "github.com/bitly/go-simplejson"
+	"github.com/newhook/workers/db"
 	"github.com/newhook/workers/fair"
-	"github.com/newhook/workers/sql"
 )
 
 func makeConcurrencyPool(concurency int) chan func() {
@@ -43,7 +43,7 @@ func fetch(env int, queue string) (*Message, error) {
 	// the first record causing all of them to deadlock.
 	//
 	// Not sure on the ideal solution here. Stored procedures?
-	job, ok, err := sql.ClaimJob(env, queue)
+	job, ok, err := db.ClaimJob(env, queue)
 	if err != nil {
 		return nil, err
 	}
@@ -93,17 +93,17 @@ func refreshJob(message *Message) chan interface{} {
 				// Clear the inflight flag.
 				job.InFlight.Valid = false
 
-				if ok, err := sql.RetryJob(message.Env, *job); err != nil {
+				if ok, err := db.RetryJob(message.Env, *job); err != nil {
 					log.Println(message.JID, "retry failed", err)
 				} else if !ok {
 					log.Println(message.JID, "retry failed because job is no longer owned by this worker")
 				}
 				return
 
-			case <-time.After(time.Duration(sql.InflightLimit/2) * time.Second):
+			case <-time.After(time.Duration(db.InflightLimit/2) * time.Second):
 				// If the refresh failed we had a database error, or the job was stolen
 				// by some other worker.
-				if ok, err := sql.RefreshJob(message.Env, *message.raw); err != nil {
+				if ok, err := db.RefreshJob(message.Env, *message.raw); err != nil {
 					log.Println(message.JID, "refresh failed", err)
 					message.cancel()
 					<-done
@@ -117,7 +117,7 @@ func refreshJob(message *Message) chan interface{} {
 			}
 		}
 
-		if ok, err := sql.DeleteJob(message.Env, *message.raw); err != nil {
+		if ok, err := db.DeleteJob(message.Env, *message.raw); err != nil {
 			log.Println(message.JID, "delete failed", err)
 		} else if !ok {
 			log.Println(message.JID, "retry failed because job is no longer owned by this worker")
@@ -128,7 +128,7 @@ func refreshJob(message *Message) chan interface{} {
 }
 
 func work(w fair.Work) (bool, error) {
-	d := w.Data.(*sql.Worker)
+	d := w.Data.(*db.Worker)
 	env := d.ID
 	queue := d.Queue
 
@@ -181,7 +181,7 @@ func work(w fair.Work) (bool, error) {
 }
 
 func pull() []fair.Work {
-	workers, err := sql.FindReady()
+	workers, err := db.FindReady()
 	if err != nil {
 		log.Println("FindReady", err)
 		return nil

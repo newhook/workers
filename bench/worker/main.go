@@ -26,11 +26,11 @@ func main() {
 	}
 
 	if *reset {
-		if err := sql.Reset(db.DB()); err != nil {
+		if err := db.Reset(db.DB()); err != nil {
 			panic(err)
 		}
 
-		if err := sql.MaybeSetupGlobal(db.DB()); err != nil {
+		if err := db.MaybeSetupGlobal(db.DB()); err != nil {
 			panic(err)
 		}
 	}

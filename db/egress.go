@@ -1,0 +1,14 @@
+package db
+
+type EgressQueue int
+
+// Don't change this order, the byte is stored in the database.
+const (
+	EGRESS_QUEUE_DEFAULT EgressQueue = iota
+	EGRESS_QUEUE_SEND_DELIVERY
+	EGRESS_QUEUE_SEND_PRIORITY_DELIVERY
+	EGRESS_QUEUE_WEBHOOK
+	EGRESS_QUEUE_DELIVERY_EVENT
+	EGRESS_QUEUE_ATTRIBUTE_RENDER
+	EGRESS_QUEUE_MAX
+)

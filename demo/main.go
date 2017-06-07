@@ -11,7 +11,6 @@ import (
 
 	"github.com/newhook/workers/db"
 	wshard "github.com/newhook/workers/shard"
-	"github.com/newhook/workers/sql"
 	"github.com/newhook/workers/workers"
 )
 
@@ -30,17 +29,17 @@ func main() {
 	}
 
 	if *reset {
-		if err := sql.Reset(db.DB()); err != nil {
+		if err := db.Reset(db.DB()); err != nil {
 			panic(err)
 		}
 
-		if err := sql.MaybeSetupGlobal(db.DB()); err != nil {
+		if err := db.MaybeSetupGlobal(db.DB()); err != nil {
 			panic(err)
 		}
 	}
 
 	if *queue {
-		if ids, err := sql.EnvironmentIDs(db.DB()); err != nil {
+		if ids, err := db.EnvironmentIDs(db.DB()); err != nil {
 			panic(err)
 		} else {
 			found := false
@@ -52,7 +51,7 @@ func main() {
 			}
 			if !found {
 				fmt.Println("initializing database for env", *env)
-				if err := sql.SetupEnv(db.DB(), *env); err != nil {
+				if err := db.SetupEnv(db.DB(), *env); err != nil {
 					panic(err)
 				}
 			}

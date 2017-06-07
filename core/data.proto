@@ -1,0 +1,11 @@
+syntax = "proto2";
+package core;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+message Egress {
+  //optional string   iD      = 1;
+  optional string     facet   = 1;
+  optional string     channel = 2;
+  optional bytes      data    = 3;
+}
