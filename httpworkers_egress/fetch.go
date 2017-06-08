@@ -1,7 +1,6 @@
 package httpworkers_egress
 
 import (
-	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -10,7 +9,6 @@ import (
 
 	simplejson "github.com/bitly/go-simplejson"
 	workers "github.com/jrallison/go-workers"
-	"github.com/newhook/workers/fair"
 	"github.com/newhook/workers/httpworkers_egress/client"
 	"github.com/newhook/workers/httpworkers_egress/data"
 )
@@ -29,8 +27,6 @@ type Fetcher struct {
 	closed       int32 // atomic int
 	retry        workers.Fetcher
 	jidSrc       rand.Source
-
-	pool *fair.Pool
 }
 
 func (f *Fetcher) Queue() string {
@@ -40,7 +36,7 @@ func (f *Fetcher) Queue() string {
 func (f *Fetcher) Fetch() {
 	messages := make(chan data.Job)
 
-	//go f.retry.Fetch()
+	go f.retry.Fetch()
 
 	go f.ping()
 
@@ -54,7 +50,7 @@ func (f *Fetcher) Fetch() {
 			<-f.Ready()
 			job, ok, err := client.Fetch(f.queue)
 			if err != nil {
-				fmt.Println("error", err)
+				log.Println("fetch error for queue", f.queue, "err", err)
 			} else if ok {
 				messages <- job
 			}
@@ -109,8 +105,14 @@ func (f *Fetcher) Acknowledge(messages workers.Msgs) {
 
 	for i, msg := range messages {
 		if oks[i] {
-			if _, err := client.Ack(flights[i]); err != nil {
-				log.Println(err)
+			for {
+				if _, err := client.Ack(flights[i]); err != nil {
+					log.Printf("ack message: env=%d id=%d queue=%s token=%s: %v",
+						flights[i].Env, flights[i].ID, flights[i].Queue, flights[i].Token, err)
+					time.Sleep(1 * time.Second)
+				} else {
+					break
+				}
 			}
 			f.flightLock.Lock()
 			delete(f.inflight, msg.Jid())
@@ -134,7 +136,7 @@ func (f *Fetcher) Messages() chan workers.Msgs {
 }
 
 func (f *Fetcher) Close() {
-	//f.retry.Close()
+	f.retry.Close()
 	f.stop <- true
 	<-f.exit
 }
@@ -165,7 +167,7 @@ func (f *Fetcher) ping() {
 }
 
 func New(queue string, n, resendTimeframe int) workers.Fetcher {
-	return &Fetcher{
+	fetcher := &Fetcher{
 		queue:        queue,
 		ready:        make(chan bool),
 		finishedwork: make(chan bool),
@@ -178,6 +180,8 @@ func New(queue string, n, resendTimeframe int) workers.Fetcher {
 		closed:       0,
 		jidSrc:       rand.NewSource(time.Now().UnixNano()),
 	}
+	fetcher.retry = workers.NewFetch(queue, fetcher.messages, fetcher.ready)
+	return fetcher
 }
 
 // hex characters only pls.

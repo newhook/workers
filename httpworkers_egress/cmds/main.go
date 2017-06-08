@@ -11,6 +11,10 @@ import (
 )
 
 func main() {
+	if err := serve.Init(); err != nil {
+		panic(err)
+	}
+
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 	go func() {

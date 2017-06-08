@@ -60,8 +60,10 @@ CREATE TABLE __DBNAME__.jobs (
 CREATE TABLE __DBNAME__.egress (
   id serial,
   queue int NOT NULL,
+  token VARCHAR(36),
   data varbinary(60000) DEFAULT NULL,
-  KEY index_queue (queue, id)
+  KEY index_queue (queue, id),
+  KEY index_token (token)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `
 

@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	simplejson "github.com/bitly/go-simplejson"
 	"github.com/newhook/workers/core"
 	"github.com/newhook/workers/db"
+	"github.com/pborman/uuid"
 )
 
 func pushtx(envID int, t db.Transactor, queue db.EgressQueue, data []byte) error {
@@ -221,14 +223,85 @@ func Delete(envID int, id int, queue db.EgressQueue, processed int) error {
 }
 
 type Egress struct {
-	ID int
+	ID    int
+	Token string
 	core.Egress
+}
+
+func Inflight(envID int, queue db.EgressQueue) ([]*Egress, error) {
+	dbname := db.DatabaseName(envID)
+	tr := db.DB()
+
+	var messages []*Egress
+	rows, err := tr.Query(`SELECT id, token, data FROM `+dbname+`.egress WHERE queue = ? AND token IS NOT NULL;`, queue)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Println("rows.Close failed", err)
+		}
+	}()
+
+	messages = nil
+	for rows.Next() {
+		var (
+			m     Egress
+			token sql.NullString
+			data  []byte
+		)
+		if err := rows.Scan(&m.ID, &token, &data); err != nil {
+			return nil, err
+		}
+		if err := m.Egress.Unmarshal(data); err != nil {
+			return nil, err
+		}
+
+		m.Token = token.String
+		messages = append(messages, &m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, err
+}
+
+func RenewToken(envID int, queue db.EgressQueue, messages []*Egress) error {
+	dbname := db.DatabaseName(envID)
+	tr := db.DB()
+	tokens := make([]string, len(messages))
+	var datas []interface{}
+	for i, msg := range messages {
+		datas = append(datas, msg.ID)
+		datas = append(datas, queue)
+		tokens[i] = uuid.New()
+		datas = append(datas, tokens[i])
+	}
+
+	if _, err := tr.Exec(
+		`INSERT INTO `+dbname+`.egress
+			   (id, queue, token)
+             VALUES
+			 (?,?,?)`+strings.Repeat(",(?,?,?)", (len(datas)/3)-1)+`
+             ON DUPLICATE KEY UPDATE token=VALUES(token)`, datas...); err != nil {
+		return err
+	}
+
+	for i := range tokens {
+		messages[i].Token = tokens[i]
+	}
+	return nil
 }
 
 func Pulln(envID int, queue db.EgressQueue, processed, size int) ([]*Egress, int, error) {
 	dbname := db.DatabaseName(envID)
 	tr := db.DB()
 
+	var (
+		messages []*Egress
+		max      int
+	)
 	rows, err := tr.Query(`SELECT id, data FROM `+dbname+`.egress WHERE queue = ? AND id > ? ORDER BY id ASC LIMIT ?;`, queue, processed, size)
 	if err != nil {
 		return nil, 0, err
@@ -239,8 +312,9 @@ func Pulln(envID int, queue db.EgressQueue, processed, size int) ([]*Egress, int
 		}
 	}()
 
-	var messages []*Egress
-	var max int
+	var datas []interface{}
+	max = 0
+	messages = nil
 	for rows.Next() {
 		var (
 			m    Egress
@@ -255,12 +329,30 @@ func Pulln(envID int, queue db.EgressQueue, processed, size int) ([]*Egress, int
 		if m.ID > max {
 			max = m.ID
 		}
+
+		m.Token = uuid.New()
 		messages = append(messages, &m)
+
+		datas = append(datas, m.ID)
+		datas = append(datas, queue)
+		datas = append(datas, m.Token)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
 	}
+
+	if len(datas) > 0 {
+		if _, err := tr.Exec(
+			`INSERT INTO `+dbname+`.egress
+			   (id, queue, token)
+             VALUES
+			 (?,?,?)`+strings.Repeat(",(?,?,?)", (len(datas)/3)-1)+`
+             ON DUPLICATE KEY UPDATE token=VALUES(token)`, datas...); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	return messages, max, nil
 }
 
@@ -327,11 +419,10 @@ func (q Queue) Processed() int {
 	return q.processed
 }
 
-func QueuesForShard() ([]Queue, error) {
-	sharddb := db.GlobalName
+func queryQueues(query string) ([]Queue, error) {
 	txr := db.DB()
 
-	rows, err := txr.Query(`SELECT id, queue, inserted, processed FROM ` + sharddb + `.egress WHERE inserted > processed`)
+	rows, err := txr.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -354,4 +445,14 @@ func QueuesForShard() ([]Queue, error) {
 		return queues, err
 	}
 	return queues, nil
+}
+
+func AllQueuesForShard() ([]Queue, error) {
+	sharddb := db.GlobalName
+	return queryQueues(`SELECT id, queue, inserted, processed FROM ` + sharddb + `.egress`)
+}
+
+func QueuesForShard() ([]Queue, error) {
+	sharddb := db.GlobalName
+	return queryQueues(`SELECT id, queue, inserted, processed FROM ` + sharddb + `.egress WHERE inserted > processed`)
 }

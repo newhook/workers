@@ -33,7 +33,7 @@ func main() {
 		_ = sleep
 		log.Println(msg.Jid(), ": ->sleep")
 		//time.Sleep(time.Duration(sleep) * time.Second)
-		time.Sleep(time.Second)
+		time.Sleep(10 * time.Second)
 		log.Println(msg.Jid, ": <-sleep")
 	}, 2)
 
